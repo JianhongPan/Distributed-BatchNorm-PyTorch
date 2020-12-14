@@ -38,4 +38,4 @@ from DistributedBatchNorm.py import BatchNorm1d as DistBatchNorm1d
 dist_bn = DistBatchNorm1d(128, world_size=8)
 ```
 
-Here, `world_size` denotes the virtual number of GPUs (simulating) on each actual GPU. 
+Here, `world_size` denotes the number of virtual GPUs (simulating) on each actual GPU. 
