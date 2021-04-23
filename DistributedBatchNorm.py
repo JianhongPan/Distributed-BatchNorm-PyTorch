@@ -8,11 +8,13 @@ from torch.nn import init
 from typing import Optional, Any
 
 class DistributedBatchNorm2d():
-    """BatchNorm2d Generator"""
-    def __init__(self, world_size):
-        self.world_size = world_size
+    r"""BatchNorm2d Generator
+    vt_world_size: virtual_world_size"""
+    def __init__(self, vt_world_size):
+        
+        self.vt_world_size = vt_world_size
     def __call__(self,  **kwargs):
-        return BatchNorm2d(world_size=self.world_size, **kwargs)
+        return BatchNorm2d(vt_world_size=self.vt_world_size, **kwargs)
 
 class _NormBase(Module):
     """Common base of _InstanceNorm and _BatchNorm"""
