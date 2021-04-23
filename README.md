@@ -15,8 +15,8 @@ However, the limit on the number of GPUs does not allow some researchers to expe
 | :--------------------------------------: | :-------: |
 |     provided by original parper    | 22.20|
 |     provided by TorchVision        | 22.38|
-|     training on 8 GPUs by us       | 22.06 |
-|     training on 1 GPU with DBN (vt_world_size=8) by us | 22.02 |
+|     training on 8 GPUs by us       | 22.16 |
+|     training on 1 GPU with DBN (vt_world_size=8) by us | 22.12 |
 |     training on 1 GPU by us       | 23.52 |
 |||
 
