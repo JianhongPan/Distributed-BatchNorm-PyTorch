@@ -27,8 +27,14 @@ class DistributedBatchNorm1d():
             in both training and eval modes. Default: ``True``
     """
     def __init__(self, vt_world_size):
+        """vt_world_size: virtual_world_size"""
+        if (type(vt_world_size) is int and vt_world_size > 0):
+            print("virtual world size: "+str(vt_world_size))
+        else:
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
-    def __call__(self,  **kwargs):
+    def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
+                 track_running_stats=True, vt_world_size=1):
         r"""Applies Batch Normalization over a 2D or 3D input (a mini-batch of 1D
             inputs with optional additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -78,7 +84,8 @@ class DistributedBatchNorm1d():
                 >>> input = torch.randn(20, 100)
                 >>> output = m(input)
         """
-        return BatchNorm1d(vt_world_size=self.vt_world_size, **kwargs)
+        return BatchNorm1d(num_features, eps, momentum, affine,
+                 track_running_stats, self.vt_world_size)
 
 class DistributedBatchNorm2d():
     r"""
@@ -102,8 +109,14 @@ class DistributedBatchNorm2d():
             in both training and eval modes. Default: ``True``
     """
     def __init__(self, vt_world_size):
+        """vt_world_size: virtual_world_size"""
+        if (type(vt_world_size) is int and vt_world_size > 0):
+            print("virtual world size: "+str(vt_world_size))
+        else:
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
-    def __call__(self,  **kwargs):
+    def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
+                 track_running_stats=True, vt_world_size=1):
         r"""Applies Batch Normalization over a 4D input (a mini-batch of 2D inputs
             with additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -152,7 +165,8 @@ class DistributedBatchNorm2d():
                 >>> input = torch.randn(20, 100, 35, 45)
                 >>> output = m(input)
         """
-        return BatchNorm2d(vt_world_size=self.vt_world_size, **kwargs)
+        return BatchNorm2d(num_features, eps, momentum, affine,
+                 track_running_stats, self.vt_world_size)
 
 class DistributedBatchNorm3d():
     r"""
@@ -176,8 +190,14 @@ class DistributedBatchNorm3d():
             in both training and eval modes. Default: ``True``
     """
     def __init__(self, vt_world_size):
+        """vt_world_size: virtual_world_size"""
+        if (type(vt_world_size) is int and vt_world_size > 0):
+            print("virtual world size: "+str(vt_world_size))
+        else:
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
-    def __call__(self,  **kwargs):
+    def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
+                 track_running_stats=True, vt_world_size=1):
         r"""Applies Batch Normalization over a 5D input (a mini-batch of 3D inputs
             with additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -227,7 +247,8 @@ class DistributedBatchNorm3d():
                 >>> input = torch.randn(20, 100, 35, 45, 10)
                 >>> output = m(input)
             """
-        return BatchNorm3d(vt_world_size=self.vt_world_size, **kwargs)
+        return BatchNorm3d(num_features, eps, momentum, affine,
+                 track_running_stats, self.vt_world_size)
 
 class _NormBase(Module):
     """Common base of _InstanceNorm and _BatchNorm"""
@@ -311,11 +332,6 @@ class _BatchNorm(_NormBase):
 
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
                  track_running_stats=True, vt_world_size=1):
-        """vt_world_size: virtual_world_size"""
-        if (type(vt_world_size) is int and vt_world_size > 0):
-            print("virtual world size: "+str(vt_world_size))
-        else:
-            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
         super(_BatchNorm, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
@@ -324,7 +340,8 @@ class _BatchNorm(_NormBase):
         self._check_input_dim(input)
 
         output = []
-        batch_size = (input.shape[0] + self.vt_world_size - 1) // self.vt_world_size # ceil(input.shape[0] / self.world_size)
+        # vt_batch_size = ceil(input.shape[0] / self.world_size)
+        vt_batch_size = (input.shape[0] + self.vt_world_size - 1) // self.vt_world_size
         for gpu_index in range(self.vt_world_size):
             # exponential_average_factor is set to self.momentum
             # (when it is available) only so that it gets updated
@@ -362,14 +379,14 @@ class _BatchNorm(_NormBase):
                 running_mean = self.running_mean.clone()
                 running_var = self.running_var.clone()
                 output += [F.batch_norm(
-                    input[batch_size*gpu_index:batch_size*(gpu_index+1)],
+                    input[vt_batch_size*gpu_index:vt_batch_size*(gpu_index+1)],
                     # If buffers are not to be tracked, ensure that they won't be updated
                     self.running_mean if not self.training or self.track_running_stats else None,
                     self.running_var if not self.training or self.track_running_stats else None,
                     self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
             else:
                 output += [F.batch_norm(
-                    input[batch_size*gpu_index:batch_size*(gpu_index+1)],
+                    input[vt_batch_size*gpu_index:vt_batch_size*(gpu_index+1)],
                     # If buffers are not to be tracked, ensure that they won't be updated
                     running_mean if not self.training or self.track_running_stats else None,
                     running_var if not self.training or self.track_running_stats else None,
