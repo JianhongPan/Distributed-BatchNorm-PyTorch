@@ -7,6 +7,12 @@ from torch.nn import init
 
 from typing import Optional, Any
 
+class DistributedBatchNorm2d():
+    """BatchNorm2d Generator"""
+    def __init__(self, world_size):
+        self.world_size = world_size
+    def __call__(self,  **kwargs):
+        return BatchNorm2d(world_size=self.world_size, **kwargs)
 
 class _NormBase(Module):
     """Common base of _InstanceNorm and _BatchNorm"""
@@ -24,7 +30,6 @@ class _NormBase(Module):
     def __init__(
         self,
         num_features: int,
-        world_size: int,
         eps: float = 1e-5,
         momentum: float = 0.1,
         affine: bool = True,
@@ -32,7 +37,6 @@ class _NormBase(Module):
     ) -> None:
         super(_NormBase, self).__init__()
         self.num_features = num_features
-        self.world_size = world_size
         self.eps = eps
         self.momentum = momentum
         self.affine = affine
@@ -44,9 +48,9 @@ class _NormBase(Module):
             self.register_parameter('weight', None)
             self.register_parameter('bias', None)
         if self.track_running_stats:
-            self.register_buffer('running_mean', torch.zeros(world_size, num_features))
-            self.register_buffer('running_var', torch.ones(world_size, num_features))
-            self.register_buffer('num_batches_tracked', torch.zeros(world_size, dtype=torch.long))
+            self.register_buffer('running_mean', torch.zeros(num_features))
+            self.register_buffer('running_var', torch.ones(num_features))
+            self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
         else:
             self.register_parameter('running_mean', None)
             self.register_parameter('running_var', None)
@@ -90,19 +94,23 @@ class _NormBase(Module):
 
 class _BatchNorm(_NormBase):
 
-    def __init__(self, num_features, world_size=1, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True):
-        if not (type(world_size) is int and world_size > 0):
-            raise ValueError("world_size must be a positive integer")
+    def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
+                 track_running_stats=True, vt_world_size=1):
+    """vt_world_size: virtual_world_size"""
+        if (type(vt_world_size) is int and vt_world_size > 0):
+            print("virtual world size: "+str(vt_world_size))
+        else:
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
+        self.vt_world_size = vt_world_size
         super(_BatchNorm, self).__init__(
-            num_features, world_size, eps, momentum, affine, track_running_stats)
+            num_features, eps, momentum, affine, track_running_stats)
 
     def forward(self, input: Tensor) -> Tensor:
         self._check_input_dim(input)
 
         output = []
-        batch_size = (input.shape[0] + self.world_size - 1) // self.world_size # ceil(input.shape[0] / self.world_size)
-        for gpu_index in range(self.world_size):
+        batch_size = (input.shape[0] + self.vt_world_size - 1) // self.vt_world_size # ceil(input.shape[0] / self.world_size)
+        for gpu_index in range(self.vt_world_size):
             # exponential_average_factor is set to self.momentum
             # (when it is available) only so that it gets updated
             # in ONNX graph when this node is exported to ONNX.
@@ -114,9 +122,10 @@ class _BatchNorm(_NormBase):
             if self.training and self.track_running_stats:
                 # TODO: if statement only here to tell the jit to skip emitting this when it is None
                 if self.num_batches_tracked is not None:
-                    self.num_batches_tracked[gpu_index] = self.num_batches_tracked[gpu_index] + 1
+                    if gpu_index == 0:
+                        self.num_batches_tracked = self.num_batches_tracked + 1
                     if self.momentum is None:  # use cumulative moving average
-                        exponential_average_factor = 1.0 / float(self.num_batches_tracked[gpu_index])
+                        exponential_average_factor = 1.0 / float(self.num_batches_tracked)
                     else:  # use exponential moving average
                         exponential_average_factor = self.momentum
 
@@ -134,12 +143,22 @@ class _BatchNorm(_NormBase):
             passed when the update should occur (i.e. in training mode when they are tracked), or when buffer stats are
             used for normalization (i.e. in eval mode when buffers are not None).
             """
-            output += [F.batch_norm(
-                input[batch_size*gpu_index:batch_size*(gpu_index+1)],
-                # If buffers are not to be tracked, ensure that they won't be updated
-                self.running_mean[gpu_index] if not self.training or self.track_running_stats else None,
-                self.running_var[gpu_index] if not self.training or self.track_running_stats else None,
-                self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
+            if gpu_index == 0:
+                running_mean = self.running_mean.clone()
+                running_var = self.running_var.clone()
+                output += [F.batch_norm(
+                    input[batch_size*gpu_index:batch_size*(gpu_index+1)],
+                    # If buffers are not to be tracked, ensure that they won't be updated
+                    self.running_mean if not self.training or self.track_running_stats else None,
+                    self.running_var if not self.training or self.track_running_stats else None,
+                    self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
+            else:
+                output += [F.batch_norm(
+                    input[batch_size*gpu_index:batch_size*(gpu_index+1)],
+                    # If buffers are not to be tracked, ensure that they won't be updated
+                    running_mean if not self.training or self.track_running_stats else None,
+                    running_var if not self.training or self.track_running_stats else None,
+                    self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
         return torch.cat(output, 0)
 
 class BatchNorm1d(_BatchNorm):
