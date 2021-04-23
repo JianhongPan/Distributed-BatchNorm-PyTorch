@@ -1,6 +1,6 @@
 # Distributed-BatchNorm-PyTorch
 
-Distributed Batch Normalization implementation in PyTorch.
+Distributed Batch Normalization (DBN) implementation in PyTorch.
 
 This module simulates the built-in PyTorch BatchNorm in distributed training
 where the mean and standard deviation are reduced individually on each virtual device.
@@ -9,7 +9,16 @@ For example, most of the papers distributedly training the networks,
 and the implementation of BatchNorm individually calculate the mean and standard deviation
 on each device and broadcast the running mean and running standard of the first GPU to other devices.
 It is often a positive impact on the final result of the network after training with large batch size. 
-However, the limit on the number of GPUs does not allow some researchers to experiment with distributed training, which might cause them to be unable to replicate some works.
+However, the limit on the number of GPUs does not allow some researchers to experiment with distributed training, which might cause them to be unable to replicate some works. 
+
+| [ResNeXt-50 32*4d](https://arxiv.org/abs/1611.05431) |Err(%)|
+| :--------------------------------------: | :-------: |
+|     provided by original parper    | 22.20|
+|     provided by TorchVision        | 22.38|
+|     training on 8 GPUs by us       | 22.06 |
+|     training on 1 GPU with DBN (vt_world_size=8) by us | 22.02 |
+|     training on 1 GPU by us       | 23.52 |
+|||
 
 To simulate the BatchNorm in distributed training, this Distributed BatchNorm uses various BatchNorm modules (with the same learnable parameters)
 to split one mini-batch into several virtual mini-batches and process them independently. 
