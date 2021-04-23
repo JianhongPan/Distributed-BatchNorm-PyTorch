@@ -35,7 +35,7 @@ To use the Distributed Batch Normalization:
 ```python
 from DistributedBatchNorm.py import BatchNorm1d as DistBatchNorm1d
 
-dist_bn = DistBatchNorm1d(128, world_size=8)
+dist_bn = DistBatchNorm1d(128, vt_world_size=8)
 ```
 
-Here, `world_size` denotes the number of virtual GPUs (simulating) on each actual GPU. 
+Here, argument `vt_world_size` denotes the number of virtual GPUs (simulating) on each actual GPU. 
