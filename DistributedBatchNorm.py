@@ -26,15 +26,17 @@ class DistributedBatchNorm1d():
             When these buffers are ``None``, this module always uses batch statistics.
             in both training and eval modes. Default: ``True``
     """
-    def __init__(self, vt_world_size):
+    def __init__(self, vt_world_size, accumulation_steps=1):
         """vt_world_size: virtual_world_size"""
         if (type(vt_world_size) is int and vt_world_size > 0):
             print("virtual world size: "+str(vt_world_size))
+            print("accumulation steps: "+str(accumulation_steps))
         else:
             raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
+        self.accumulation_steps = accumulation_steps
     def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True, vt_world_size=1):
+                 track_running_stats=True):
         r"""Applies Batch Normalization over a 2D or 3D input (a mini-batch of 1D
             inputs with optional additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -85,7 +87,7 @@ class DistributedBatchNorm1d():
                 >>> output = m(input)
         """
         return BatchNorm1d(num_features, eps, momentum, affine,
-                 track_running_stats, self.vt_world_size)
+                 track_running_stats, vt_world_size=self.vt_world_size, accumulation_steps=self.accumulation_steps)
 
 class DistributedBatchNorm2d():
     r"""
@@ -108,15 +110,18 @@ class DistributedBatchNorm2d():
             When these buffers are ``None``, this module always uses batch statistics.
             in both training and eval modes. Default: ``True``
     """
-    def __init__(self, vt_world_size):
+    def __init__(self, vt_world_size, accumulation_steps=1):
         """vt_world_size: virtual_world_size"""
         if (type(vt_world_size) is int and vt_world_size > 0):
             print("virtual world size: "+str(vt_world_size))
+            print("accumulation steps: "+str(accumulation_steps))
         else:
             raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
+        self.accumulation_steps = accumulation_steps
+
     def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True, vt_world_size=1):
+                 track_running_stats=True):
         r"""Applies Batch Normalization over a 4D input (a mini-batch of 2D inputs
             with additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -166,7 +171,7 @@ class DistributedBatchNorm2d():
                 >>> output = m(input)
         """
         return BatchNorm2d(num_features, eps, momentum, affine,
-                 track_running_stats, self.vt_world_size)
+                 track_running_stats, vt_world_size=self.vt_world_size, accumulation_steps=self.accumulation_steps)
 
 class DistributedBatchNorm3d():
     r"""
@@ -189,15 +194,17 @@ class DistributedBatchNorm3d():
             When these buffers are ``None``, this module always uses batch statistics.
             in both training and eval modes. Default: ``True``
     """
-    def __init__(self, vt_world_size):
+    def __init__(self, vt_world_size, accumulation_steps=1):
         """vt_world_size: virtual_world_size"""
         if (type(vt_world_size) is int and vt_world_size > 0):
             print("virtual world size: "+str(vt_world_size))
+            print("accumulation steps: "+str(accumulation_steps))
         else:
             raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
         self.vt_world_size = vt_world_size
+        self.accumulation_steps = accumulation_steps
     def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True, vt_world_size=1):
+                 track_running_stats=True):
         r"""Applies Batch Normalization over a 5D input (a mini-batch of 3D inputs
             with additional channel dimension) as described in the paper
             `Batch Normalization: Accelerating Deep Network Training by Reducing
@@ -248,7 +255,7 @@ class DistributedBatchNorm3d():
                 >>> output = m(input)
             """
         return BatchNorm3d(num_features, eps, momentum, affine,
-                 track_running_stats, self.vt_world_size)
+                 track_running_stats, vt_world_size=self.vt_world_size, accumulation_steps=self.accumulation_steps)
 
 class _NormBase(Module):
     """Common base of _InstanceNorm and _BatchNorm"""
@@ -331,8 +338,10 @@ class _NormBase(Module):
 class _BatchNorm(_NormBase):
 
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True, vt_world_size=1):
+                 track_running_stats=True, vt_world_size=1, accumulation_steps=1):
         self.vt_world_size = vt_world_size
+        self.accumulation_steps = accumulation_steps
+        self.accumulation_step = 0
         super(_BatchNorm, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
 
@@ -340,8 +349,7 @@ class _BatchNorm(_NormBase):
         self._check_input_dim(input)
 
         output = []
-        # vt_batch_size = ceil(input.shape[0] / self.world_size)
-        vt_batch_size = (input.shape[0] + self.vt_world_size - 1) // self.vt_world_size
+        vt_batch_size = (input.shape[0] + self.vt_world_size - 1) // self.vt_world_size # vt_batch_size = ceil(input.shape[0] / self.world_size)
         for vt_gpu_index in range(self.vt_world_size):
             # exponential_average_factor is set to self.momentum
             # (when it is available) only so that it gets updated
@@ -375,7 +383,7 @@ class _BatchNorm(_NormBase):
             passed when the update should occur (i.e. in training mode when they are tracked), or when buffer stats are
             used for normalization (i.e. in eval mode when buffers are not None).
             """
-            if vt_gpu_index == 0:
+            if vt_gpu_index == 0 and self.accumulation_step == 0:
                 # save the running_mean and running_var before updated
                 running_mean = self.running_mean.clone()
                 running_var = self.running_var.clone()
@@ -391,7 +399,9 @@ class _BatchNorm(_NormBase):
                     # If buffers are not to be tracked, ensure that they won't be updated
                     running_mean if not self.training or self.track_running_stats else None,
                     running_var if not self.training or self.track_running_stats else None,
-                    self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
+                    self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]   
+
+        self.accumulation_step = (self.accumulation_step + 1) % self.accumulation_steps
         return torch.cat(output, 0)
 
 class BatchNorm1d(_BatchNorm):
