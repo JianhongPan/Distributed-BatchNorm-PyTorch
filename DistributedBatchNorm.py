@@ -32,7 +32,7 @@ class DistributedBatchNorm1d():
             print("virtual world size: "+str(vt_world_size))
             print("accumulation steps: "+str(accumulation_steps))
         else:
-            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(vt_world_size)+").")
         self.vt_world_size = vt_world_size
         self.accumulation_steps = accumulation_steps
     def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
@@ -116,7 +116,7 @@ class DistributedBatchNorm2d():
             print("virtual world size: "+str(vt_world_size))
             print("accumulation steps: "+str(accumulation_steps))
         else:
-            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(vt_world_size)+").")
         self.vt_world_size = vt_world_size
         self.accumulation_steps = accumulation_steps
 
@@ -200,7 +200,7 @@ class DistributedBatchNorm3d():
             print("virtual world size: "+str(vt_world_size))
             print("accumulation steps: "+str(accumulation_steps))
         else:
-            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(virtual_world_size)+").")
+            raise ValueError("argument 'vt_world_size' must be positive integer (got "+str(vt_world_size)+").")
         self.vt_world_size = vt_world_size
         self.accumulation_steps = accumulation_steps
     def __call__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
@@ -385,8 +385,8 @@ class _BatchNorm(_NormBase):
             """
             if vt_gpu_index == 0 and self.accumulation_step == 0:
                 # save the running_mean and running_var before updated
-                running_mean = self.running_mean.clone()
-                running_var = self.running_var.clone()
+                self.pre_running_mean = self.running_mean.clone()
+                self.pre_running_var = self.running_var.clone()
                 output += [F.batch_norm(
                     input[vt_batch_size*vt_gpu_index:vt_batch_size*(vt_gpu_index+1)],
                     # If buffers are not to be tracked, ensure that they won't be updated
@@ -394,6 +394,8 @@ class _BatchNorm(_NormBase):
                     self.running_var if not self.training or self.track_running_stats else None,
                     self.weight, self.bias, bn_training, exponential_average_factor, self.eps)]
             else:
+                running_mean = self.pre_running_mean.clone()
+                running_var = self.pre_running_var.clone()
                 output += [F.batch_norm(
                     input[vt_batch_size*vt_gpu_index:vt_batch_size*(vt_gpu_index+1)],
                     # If buffers are not to be tracked, ensure that they won't be updated
